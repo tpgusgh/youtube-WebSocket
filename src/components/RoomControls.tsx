@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Users, Link, Copy, Check, Play, ExternalLink } from 'lucide-react';
+import { Settings, Users, Link, Copy, Check, Play, ExternalLink, Music } from 'lucide-react';
 import { Room, User } from '../types';
 
 interface RoomControlsProps {
@@ -32,7 +32,7 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
 
   const getVideoTitle = async (videoId: string): Promise<string> => {
     try {
-      // YouTube oEmbed API 사용 (CORS 제한으로 실제로는 서버에서 처리해야 함)
+      // YouTube oEmbed API 사용
       const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
       if (response.ok) {
         const data = await response.json();
@@ -41,7 +41,7 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
     } catch (error) {
       console.error('Failed to fetch video title:', error);
     }
-    return `YouTube Video ${videoId}`;
+    return `YouTube 음악 ${videoId}`;
   };
 
   const handleVideoChange = async () => {
@@ -49,7 +49,7 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
     
     const videoId = extractVideoId(videoUrl);
     if (!videoId) {
-      alert('올바른 YouTube URL을 입력해주세요.\n\n지원 형식:\n• https://www.youtube.com/watch?v=VIDEO_ID\n• https://youtu.be/VIDEO_ID\n• https://www.youtube.com/embed/VIDEO_ID');
+      alert('올바른 YouTube URL을 입력해주세요!\n\n예시:\n• https://www.youtube.com/watch?v=dQw4w9WgXcQ\n• https://youtu.be/dQw4w9WgXcQ');
       return;
     }
 
@@ -60,7 +60,9 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
       setVideoUrl('');
     } catch (error) {
       console.error('Error changing video:', error);
-      alert('동영상을 변경하는 중 오류가 발생했습니다.');
+      // 에러가 나도 일단 변경
+      onChangeVideo(videoId, `YouTube 음악 ${videoId}`);
+      setVideoUrl('');
     } finally {
       setIsLoading(false);
     }
@@ -92,58 +94,74 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
     }
   };
 
+  // 인기 음악 추천
+  const popularSongs = [
+    { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up' },
+    { id: 'kJQP7kiw5Fk', title: 'Luis Fonsi - Despacito ft. Daddy Yankee' },
+    { id: 'fJ9rUzIMcZQ', title: 'Queen - Bohemian Rhapsody' },
+    { id: 'hT_nvWreIhg', title: 'Whitney Houston - I Will Always Love You' }
+  ];
+
   return (
     <div className="space-y-6">
       {/* 방 정보 */}
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">{room.name}</h2>
+          <h2 className="text-xl font-bold text-white flex items-center space-x-2">
+            <Music className="w-6 h-6 text-red-600" />
+            <span>{room.name}</span>
+          </h2>
           <div className="flex items-center space-x-2 text-gray-400">
             <Users className="w-5 h-5" />
-            <span>{room.participants.length}명 참여중</span>
+            <span>{room.participants.length}명 함께 듣는 중</span>
           </div>
         </div>
 
         <div className="space-y-3">
           <div className="flex items-center space-x-2 bg-gray-700 rounded-lg p-3">
             <Link className="w-5 h-5 text-gray-400 flex-shrink-0" />
-            <code className="flex-1 text-sm text-gray-300 bg-gray-900 px-3 py-2 rounded font-mono overflow-hidden text-ellipsis">
-              {window.location.origin}?room={room.id}
-            </code>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-400 mb-1">방 ID</p>
+              <code className="text-lg font-bold text-white bg-gray-900 px-3 py-2 rounded font-mono block">
+                {room.id}
+              </code>
+            </div>
             <button
               onClick={copyRoomLink}
-              className="flex items-center space-x-1 px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex-shrink-0"
+              className="flex items-center space-x-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex-shrink-0"
             >
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              <span className="text-sm">{copied ? '복사됨' : '복사'}</span>
+              <span className="text-sm">{copied ? '복사됨!' : '링크 복사'}</span>
             </button>
           </div>
           
           <p className="text-xs text-gray-400">
-            이 링크를 친구들에게 공유하여 함께 시청하세요
+            🎵 친구에게 방 ID <strong>{room.id}</strong>를 알려주거나 링크를 공유하세요!
           </p>
         </div>
       </div>
 
-      {/* 동영상 변경 (호스트만) */}
-      {currentUser.isHost && (
-        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-          <div className="flex items-center space-x-2 mb-4">
-            <Settings className="w-5 h-5 text-red-600" />
-            <h3 className="text-lg font-semibold text-white">동영상 변경</h3>
-          </div>
-          
+      {/* 음악 변경 */}
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <div className="flex items-center space-x-2 mb-4">
+          <Settings className="w-5 h-5 text-red-600" />
+          <h3 className="text-lg font-semibold text-white">
+            {currentUser.isHost ? '🎵 음악 변경' : '🎵 현재 재생중'}
+          </h3>
+        </div>
+        
+        {currentUser.isHost ? (
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                YouTube URL
+                YouTube URL 입력
               </label>
               <input
                 type="text"
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="https://www.youtube.com/watch?v=..."
+                placeholder="https://www.youtube.com/watch?v=... 또는 https://youtu.be/..."
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent"
                 disabled={isLoading}
               />
@@ -157,36 +175,47 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
               {isLoading ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>변경 중...</span>
+                  <span>음악 변경 중...</span>
                 </>
               ) : (
                 <>
                   <Play className="w-4 h-4" />
-                  <span>동영상 변경</span>
+                  <span>🎵 음악 변경하기</span>
                 </>
               )}
             </button>
-          </div>
-          
-          <div className="mt-4 p-3 bg-gray-700/50 rounded-lg">
-            <p className="text-xs text-gray-400 mb-2">
-              <strong>지원 형식:</strong>
-            </p>
-            <ul className="text-xs text-gray-400 space-y-1">
-              <li>• https://www.youtube.com/watch?v=VIDEO_ID</li>
-              <li>• https://youtu.be/VIDEO_ID</li>
-              <li>• https://www.youtube.com/embed/VIDEO_ID</li>
-            </ul>
-          </div>
-        </div>
-      )}
 
-      {/* 현재 재생중인 동영상 */}
+            {/* 인기 음악 추천 */}
+            <div className="mt-6">
+              <p className="text-sm font-medium text-gray-300 mb-3">🔥 인기 음악 추천</p>
+              <div className="grid grid-cols-1 gap-2">
+                {popularSongs.map((song) => (
+                  <button
+                    key={song.id}
+                    onClick={() => onChangeVideo(song.id, song.title)}
+                    className="text-left p-3 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-sm text-gray-300 hover:text-white"
+                  >
+                    🎵 {song.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-6">
+            <Music className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400">방장이 음악을 선택하면 자동으로 재생됩니다</p>
+            <p className="text-gray-500 text-sm mt-1">잠시만 기다려주세요! 🎵</p>
+          </div>
+        )}
+      </div>
+
+      {/* 현재 재생중인 음악 */}
       {room.currentVideo && (
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
             <Play className="w-5 h-5 text-red-600" />
-            <span>현재 재생중</span>
+            <span>🎵 지금 듣고 있는 음악</span>
           </h3>
           
           <div className="flex space-x-4">
@@ -207,7 +236,7 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
             
             <div className="flex-1 min-w-0">
               <h4 className="text-white font-medium text-sm line-clamp-2 mb-2">
-                {room.currentVideo.title}
+                🎵 {room.currentVideo.title}
               </h4>
               <div className="flex items-center space-x-4 text-xs text-gray-400">
                 <span className={`px-2 py-1 rounded-full ${
@@ -215,7 +244,7 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
                     ? 'bg-green-600/20 text-green-400' 
                     : 'bg-gray-600/20 text-gray-400'
                 }`}>
-                  {room.isPlaying ? '재생중' : '일시정지'}
+                  {room.isPlaying ? '🎵 재생중' : '⏸️ 일시정지'}
                 </span>
                 <a
                   href={`https://www.youtube.com/watch?v=${room.currentVideo.id}`}
@@ -229,19 +258,6 @@ export const RoomControls: React.FC<RoomControlsProps> = ({
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 호스트가 아닌 경우 안내 */}
-      {!currentUser.isHost && (
-        <div className="bg-yellow-600/10 border border-yellow-600/30 rounded-lg p-4">
-          <div className="flex items-center space-x-2 text-yellow-400">
-            <Settings className="w-5 h-5" />
-            <span className="font-medium">참가자 모드</span>
-          </div>
-          <p className="text-yellow-300 text-sm mt-2">
-            동영상 변경은 방장만 가능합니다. 방장이 동영상을 변경하면 자동으로 동기화됩니다.
-          </p>
         </div>
       )}
     </div>
