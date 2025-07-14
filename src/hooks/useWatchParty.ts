@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Room, User, ChatMessage, PlayerState } from '../types';
 
 export const useWatchParty = () => {
@@ -11,52 +11,64 @@ export const useWatchParty = () => {
     videoId: ''
   });
 
-  // 실시간 동기화 시뮬레이션 (실제로는 WebSocket 사용)
-  const syncPlayerState = useCallback((newState: Partial<PlayerState>) => {
-    setPlayerState(prev => {
-      const updated = { ...prev, ...newState };
-      
-      // 방 상태도 업데이트
-      if (room) {
-        setRoom(prevRoom => prevRoom ? {
-          ...prevRoom,
-          isPlaying: updated.isPlaying,
-          currentTime: updated.currentTime
-        } : null);
-        
-        // 시스템 메시지 추가
-        if (newState.isPlaying !== undefined) {
-          const action = newState.isPlaying ? '재생을 시작했습니다' : '일시정지했습니다';
-          addSystemMessage(`${currentUser?.name}님이 ${action}`);
-        } else if (newState.currentTime !== undefined && Math.abs(newState.currentTime - prev.currentTime) > 5) {
-          addSystemMessage(`${currentUser?.name}님이 ${Math.floor(newState.currentTime)}초로 이동했습니다`);
-        }
+  // 방 데이터를 전역 저장소에 저장 (실제로는 서버 사용)
+  const saveRoomToStorage = useCallback((roomData: Room) => {
+    localStorage.setItem(`room_${roomData.id}`, JSON.stringify(roomData));
+    // 모든 방 목록도 저장
+    const allRooms = JSON.parse(localStorage.getItem('all_rooms') || '[]');
+    const existingIndex = allRooms.findIndex((r: any) => r.id === roomData.id);
+    if (existingIndex >= 0) {
+      allRooms[existingIndex] = roomData;
+    } else {
+      allRooms.push(roomData);
+    }
+    localStorage.setItem('all_rooms', JSON.stringify(allRooms));
+  }, []);
+
+  const loadRoomFromStorage = useCallback((roomId: string): Room | null => {
+    try {
+      const roomData = localStorage.getItem(`room_${roomId.toUpperCase()}`);
+      if (roomData) {
+        const parsed = JSON.parse(roomData);
+        // 날짜 객체 복원
+        parsed.createdAt = new Date(parsed.createdAt);
+        parsed.messages = parsed.messages.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        }));
+        return parsed;
       }
-      
-      return updated;
-    });
-  }, [room, currentUser]);
+    } catch (error) {
+      console.error('방 로드 실패:', error);
+    }
+    return null;
+  }, []);
 
   const addSystemMessage = useCallback((message: string) => {
     if (!room) return;
     
     const systemMessage: ChatMessage = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: Date.now().toString(),
       userId: 'system',
       userName: 'System',
       message,
       timestamp: new Date()
     };
 
-    setRoom(prev => prev ? {
-      ...prev,
-      messages: [...prev.messages, systemMessage]
-    } : null);
-  }, [room]);
+    setRoom(prev => {
+      if (!prev) return null;
+      const updated = {
+        ...prev,
+        messages: [...prev.messages, systemMessage]
+      };
+      saveRoomToStorage(updated);
+      return updated;
+    });
+  }, [room, saveRoomToStorage]);
 
   const createRoom = useCallback((roomName: string, userName: string) => {
-    const userId = Math.random().toString(36).substr(2, 9);
-    const roomId = Math.random().toString(36).substr(2, 6).toUpperCase(); // 짧고 기억하기 쉬운 ID
+    const userId = `user_${Date.now()}`;
+    const roomId = Math.random().toString(36).substr(2, 6).toUpperCase();
     
     const user: User = {
       id: userId,
@@ -75,7 +87,7 @@ export const useWatchParty = () => {
           id: '1',
           userId: 'system',
           userName: 'System',
-          message: `🎉 ${userName}님이 방을 만들었습니다! 친구들을 초대해보세요!`,
+          message: `🎉 ${userName}님이 "${roomName}" 방을 만들었습니다!`,
           timestamp: new Date()
         }
       ],
@@ -86,19 +98,24 @@ export const useWatchParty = () => {
 
     setCurrentUser(user);
     setRoom(newRoom);
+    saveRoomToStorage(newRoom);
     
     // URL 업데이트
     window.history.pushState({}, '', `?room=${roomId}`);
     
-    // 로컬 스토리지에 방 정보 저장 (시뮬레이션)
-    localStorage.setItem(`room_${roomId}`, JSON.stringify(newRoom));
-    
     return { room: newRoom, user };
-  }, []);
+  }, [saveRoomToStorage]);
 
   const joinRoom = useCallback((roomId: string, userName: string) => {
-    const userId = Math.random().toString(36).substr(2, 9);
+    const upperRoomId = roomId.toUpperCase();
+    const existingRoom = loadRoomFromStorage(upperRoomId);
     
+    if (!existingRoom) {
+      // 방이 없으면 에러
+      throw new Error(`방 "${upperRoomId}"를 찾을 수 없습니다. 방 ID를 다시 확인해주세요.`);
+    }
+
+    const userId = `user_${Date.now()}`;
     const user: User = {
       id: userId,
       name: userName,
@@ -106,108 +123,71 @@ export const useWatchParty = () => {
       avatar: `https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop`
     };
 
-    // 로컬 스토리지에서 방 찾기 (실제로는 서버에서 가져옴)
-    const savedRoom = localStorage.getItem(`room_${roomId.toUpperCase()}`);
-    
-    let existingRoom: Room;
-    
-    if (savedRoom) {
-      // 저장된 방이 있으면 복원
-      const parsedRoom = JSON.parse(savedRoom);
-      existingRoom = {
-        ...parsedRoom,
-        participants: [...parsedRoom.participants, user],
-        messages: [
-          ...parsedRoom.messages,
-          {
-            id: Math.random().toString(36).substr(2, 9),
-            userId: 'system',
-            userName: 'System',
-            message: `👋 ${userName}님이 방에 참여했습니다!`,
-            timestamp: new Date()
-          }
-        ]
-      };
-    } else {
-      // 방이 없으면 기본 방 생성 (데모용)
-      existingRoom = {
-        id: roomId.toUpperCase(),
-        name: `${userName}님의 방`,
-        currentVideo: null,
-        participants: [
-          {
-            id: 'demo-host',
-            name: '방장',
-            isHost: true,
-            avatar: 'https://images.pexels.com/photos/1239291/pexels-photo-1239291.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop'
-          },
-          user
-        ],
-        messages: [
-          {
-            id: '1',
-            userId: 'system',
-            userName: 'System',
-            message: `🎵 음악을 함께 들어보세요! YouTube URL을 입력하면 시작됩니다.`,
-            timestamp: new Date()
-          },
-          {
-            id: '2',
-            userId: 'system',
-            userName: 'System',
-            message: `👋 ${userName}님이 방에 참여했습니다!`,
-            timestamp: new Date()
-          }
-        ],
-        isPlaying: false,
-        currentTime: 0,
-        createdAt: new Date()
-      };
+    // 이미 같은 이름의 사용자가 있는지 확인
+    const nameExists = existingRoom.participants.some(p => p.name === userName);
+    if (nameExists) {
+      user.name = `${userName}_${Math.random().toString(36).substr(2, 3)}`;
     }
 
+    const updatedRoom: Room = {
+      ...existingRoom,
+      participants: [...existingRoom.participants, user],
+      messages: [
+        ...existingRoom.messages,
+        {
+          id: Date.now().toString(),
+          userId: 'system',
+          userName: 'System',
+          message: `👋 ${user.name}님이 방에 참여했습니다!`,
+          timestamp: new Date()
+        }
+      ]
+    };
+
     setCurrentUser(user);
-    setRoom(existingRoom);
-    
-    // 방 정보 업데이트
-    localStorage.setItem(`room_${roomId.toUpperCase()}`, JSON.stringify(existingRoom));
+    setRoom(updatedRoom);
+    saveRoomToStorage(updatedRoom);
     
     // 기존 동영상이 있으면 플레이어 상태 동기화
-    if (existingRoom.currentVideo) {
+    if (updatedRoom.currentVideo) {
       setPlayerState({
-        isPlaying: existingRoom.isPlaying,
-        currentTime: existingRoom.currentTime,
-        duration: 0,
-        videoId: existingRoom.currentVideo.id
+        isPlaying: updatedRoom.isPlaying,
+        currentTime: updatedRoom.currentTime,
+        duration: 300, // 기본값
+        videoId: updatedRoom.currentVideo.id
       });
     }
     
-    return { room: existingRoom, user };
-  }, []);
+    // URL 업데이트
+    window.history.pushState({}, '', `?room=${upperRoomId}`);
+    
+    return { room: updatedRoom, user };
+  }, [loadRoomFromStorage, saveRoomToStorage]);
 
   const sendMessage = useCallback((message: string) => {
     if (!currentUser || !room) return;
 
     const newMessage: ChatMessage = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: Date.now().toString(),
       userId: currentUser.id,
       userName: currentUser.name,
       message,
       timestamp: new Date()
     };
 
-    const updatedRoom = {
-      ...room,
-      messages: [...room.messages, newMessage]
-    };
-
-    setRoom(updatedRoom);
-    
-    // 로컬 스토리지 업데이트
-    localStorage.setItem(`room_${room.id}`, JSON.stringify(updatedRoom));
-  }, [currentUser, room]);
+    setRoom(prev => {
+      if (!prev) return null;
+      const updated = {
+        ...prev,
+        messages: [...prev.messages, newMessage]
+      };
+      saveRoomToStorage(updated);
+      return updated;
+    });
+  }, [currentUser, room, saveRoomToStorage]);
 
   const changeVideo = useCallback((videoId: string, title: string) => {
-    if (!room) return;
+    if (!room || !currentUser) return;
 
     const thumbnail = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
     
@@ -219,20 +199,75 @@ export const useWatchParty = () => {
     };
 
     setRoom(updatedRoom);
+    saveRoomToStorage(updatedRoom);
 
     setPlayerState(prev => ({
       ...prev,
       videoId,
       isPlaying: false,
       currentTime: 0,
-      duration: 0
+      duration: 300 // 기본값
     }));
 
-    // 로컬 스토리지 업데이트
-    localStorage.setItem(`room_${room.id}`, JSON.stringify(updatedRoom));
+    // 시스템 메시지 추가
+    setTimeout(() => {
+      addSystemMessage(`🎵 ${currentUser.name}님이 새 음악으로 변경했습니다: ${title}`);
+    }, 100);
+  }, [room, currentUser, saveRoomToStorage, addSystemMessage]);
 
-    addSystemMessage(`🎵 새 음악으로 변경되었습니다: ${title}`);
-  }, [room, addSystemMessage]);
+  const syncPlayerState = useCallback((newState: Partial<PlayerState>) => {
+    if (!room || !currentUser) return;
+
+    setPlayerState(prev => {
+      const updated = { ...prev, ...newState };
+      
+      // 방 상태도 업데이트
+      const updatedRoom = {
+        ...room,
+        isPlaying: updated.isPlaying,
+        currentTime: updated.currentTime
+      };
+      
+      setRoom(updatedRoom);
+      saveRoomToStorage(updatedRoom);
+      
+      // 시스템 메시지 추가 (호스트만)
+      if (currentUser.isHost) {
+        if (newState.isPlaying !== undefined) {
+          const action = newState.isPlaying ? '재생을 시작했습니다' : '일시정지했습니다';
+          setTimeout(() => {
+            addSystemMessage(`🎵 ${currentUser.name}님이 ${action}`);
+          }, 100);
+        }
+      }
+      
+      return updated;
+    });
+  }, [room, currentUser, saveRoomToStorage, addSystemMessage]);
+
+  // 주기적으로 방 상태 동기화 (다른 사용자의 변경사항 감지)
+  useEffect(() => {
+    if (!room) return;
+
+    const interval = setInterval(() => {
+      const latestRoom = loadRoomFromStorage(room.id);
+      if (latestRoom && JSON.stringify(latestRoom) !== JSON.stringify(room)) {
+        setRoom(latestRoom);
+        
+        // 플레이어 상태도 동기화
+        if (latestRoom.currentVideo) {
+          setPlayerState(prev => ({
+            ...prev,
+            isPlaying: latestRoom.isPlaying,
+            currentTime: latestRoom.currentTime,
+            videoId: latestRoom.currentVideo!.id
+          }));
+        }
+      }
+    }, 2000); // 2초마다 체크
+
+    return () => clearInterval(interval);
+  }, [room, loadRoomFromStorage]);
 
   return {
     room,

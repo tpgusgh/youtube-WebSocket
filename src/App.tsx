@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { WatchParty } from './components/WatchParty';
 import { useWatchParty } from './hooks/useWatchParty';
-import { Play, Users, Plus, Music } from 'lucide-react';
+import { Play, Users, Plus, Music, AlertCircle } from 'lucide-react';
 
 function App() {
   const [showJoinForm, setShowJoinForm] = useState(false);
@@ -9,6 +9,8 @@ function App() {
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
   const [joinMode, setJoinMode] = useState<'create' | 'join'>('create');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const {
     room,
@@ -32,15 +34,51 @@ function App() {
     }
   }, []);
 
-  const handleCreateRoom = () => {
-    if (userName.trim() && roomName.trim()) {
+  const handleCreateRoom = async () => {
+    if (!userName.trim() || !roomName.trim()) {
+      setError('이름과 방 이름을 모두 입력해주세요.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500)); // 로딩 시뮬레이션
       createRoom(roomName, userName);
+    } catch (err) {
+      setError('방 생성에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleJoinRoom = () => {
-    if (userName.trim() && roomId.trim()) {
+  const handleJoinRoom = async () => {
+    if (!userName.trim() || !roomId.trim()) {
+      setError('이름과 방 ID를 모두 입력해주세요.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500)); // 로딩 시뮬레이션
       joinRoom(roomId.toUpperCase(), userName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '방 참여에 실패했습니다.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      if (joinMode === 'create') {
+        handleCreateRoom();
+      } else {
+        handleJoinRoom();
+      }
     }
   };
 
@@ -73,10 +111,17 @@ function App() {
             <p className="text-gray-400 mt-2">
               {joinMode === 'create' 
                 ? '친구들과 함께 음악을 들을 방을 만들어보세요!'
-                : '친구가 만든 음악방에 참여하세요!'
+                : roomId ? `방 "${roomId}"에 참여하세요!` : '친구가 만든 음악방에 참여하세요!'
               }
             </p>
           </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-600/20 border border-red-600/30 rounded-lg flex items-center space-x-2">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
 
           <div className="space-y-4">
             <div>
@@ -86,9 +131,14 @@ function App() {
               <input
                 type="text"
                 value={userName}
-                onChange={(e) => setUserName(e.target.value)}
+                onChange={(e) => {
+                  setUserName(e.target.value);
+                  setError('');
+                }}
+                onKeyPress={handleKeyPress}
                 placeholder="이름을 입력하세요"
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent"
+                disabled={isLoading}
               />
             </div>
 
@@ -100,33 +150,49 @@ function App() {
                 <input
                   type="text"
                   value={roomName}
-                  onChange={(e) => setRoomName(e.target.value)}
+                  onChange={(e) => {
+                    setRoomName(e.target.value);
+                    setError('');
+                  }}
+                  onKeyPress={handleKeyPress}
                   placeholder="예: 우리들의 음악방"
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent"
+                  disabled={isLoading}
                 />
               </div>
             ) : (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  🔑 방 ID (친구에게 받은 코드)
+                  🔑 방 ID
                 </label>
                 <input
                   type="text"
                   value={roomId}
-                  onChange={(e) => setRoomId(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setRoomId(e.target.value.toUpperCase());
+                    setError('');
+                  }}
+                  onKeyPress={handleKeyPress}
                   placeholder="예: ABC123"
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-center text-lg font-mono"
                   maxLength={6}
+                  disabled={isLoading}
                 />
+                <p className="text-xs text-gray-500 mt-1">친구에게 받은 6자리 방 코드를 입력하세요</p>
               </div>
             )}
 
             <button
               onClick={joinMode === 'create' ? handleCreateRoom : handleJoinRoom}
-              disabled={!userName.trim() || (joinMode === 'create' ? !roomName.trim() : !roomId.trim())}
+              disabled={isLoading || !userName.trim() || (joinMode === 'create' ? !roomName.trim() : !roomId.trim())}
               className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center space-x-2"
             >
-              {joinMode === 'create' ? (
+              {isLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  <span>{joinMode === 'create' ? '방 만드는 중...' : '참여하는 중...'}</span>
+                </>
+              ) : joinMode === 'create' ? (
                 <>
                   <Plus className="w-5 h-5" />
                   <span>🎵 음악방 만들기</span>
@@ -145,8 +211,10 @@ function App() {
                   setJoinMode(joinMode === 'create' ? 'join' : 'create');
                   setRoomName('');
                   setRoomId('');
+                  setError('');
                 }}
-                className="text-red-400 hover:text-red-300 text-sm transition-colors"
+                disabled={isLoading}
+                className="text-red-400 hover:text-red-300 text-sm transition-colors disabled:opacity-50"
               >
                 {joinMode === 'create' ? '🔑 기존 방에 참여하기' : '➕ 새 방 만들기'}
               </button>
@@ -239,7 +307,7 @@ function App() {
 
           {/* 사용법 안내 */}
           <div className="mt-16 bg-gray-800 rounded-lg p-8 border border-gray-700">
-            <h3 className="text-2xl font-bold mb-6">🎯 사용법이 궁금하다면?</h3>
+            <h3 className="text-2xl font-bold mb-6">🎯 사용법</h3>
             <div className="grid md:grid-cols-2 gap-6 text-left">
               <div>
                 <h4 className="text-lg font-semibold text-red-400 mb-2">1️⃣ 방 만들기</h4>
@@ -247,17 +315,27 @@ function App() {
               </div>
               <div>
                 <h4 className="text-lg font-semibold text-red-400 mb-2">2️⃣ 친구 초대</h4>
-                <p className="text-gray-400 text-sm">방 ID를 친구에게 알려주거나 링크를 공유하세요!</p>
+                <p className="text-gray-400 text-sm">6자리 방 ID를 친구에게 알려주거나 링크를 공유하세요!</p>
               </div>
               <div>
                 <h4 className="text-lg font-semibold text-red-400 mb-2">3️⃣ 음악 재생</h4>
-                <p className="text-gray-400 text-sm">YouTube URL을 입력하면 모든 친구가 함께 들어요!</p>
+                <p className="text-gray-400 text-sm">YouTube URL을 입력하거나 추천 음악을 선택하세요!</p>
               </div>
               <div>
                 <h4 className="text-lg font-semibold text-red-400 mb-2">4️⃣ 함께 즐기기</h4>
                 <p className="text-gray-400 text-sm">채팅하며 음악을 함께 즐기세요! 🎶</p>
               </div>
             </div>
+          </div>
+
+          {/* 테스트 안내 */}
+          <div className="mt-8 bg-blue-600/20 border border-blue-600/30 rounded-lg p-6">
+            <h4 className="text-lg font-semibold text-blue-400 mb-2">🧪 테스트 방법</h4>
+            <p className="text-blue-300 text-sm">
+              1. 새 음악방을 만들고 방 ID를 복사하세요<br />
+              2. 새 탭에서 같은 사이트를 열고 방 ID로 참여하세요<br />
+              3. 한 탭에서 음악을 재생하면 다른 탭에서도 동기화됩니다!
+            </p>
           </div>
         </div>
       </main>

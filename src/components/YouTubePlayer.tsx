@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, Volume2, Maximize, SkipBack, SkipForward } from 'lucide-react';
 import { PlayerState } from '../types';
 
@@ -15,44 +15,42 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   onStateChange,
   isHost
 }) => {
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [volume, setVolume] = useState(50);
-  const [isDragging, setIsDragging] = useState(false);
   const [localTime, setLocalTime] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // YouTube 임베드 URL 생성
-  const getEmbedUrl = (videoId: string) => {
+  // YouTube 임베드 URL 생성 (자동재생 포함)
+  const getEmbedUrl = (videoId: string, autoplay: boolean = false, startTime: number = 0) => {
     if (!videoId) return '';
-    return `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&modestbranding=1&rel=0&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3&autohide=0&autoplay=0&start=${Math.floor(playerState.currentTime)}`;
+    const params = new URLSearchParams({
+      enablejsapi: '1',
+      controls: '1',
+      modestbranding: '1',
+      rel: '0',
+      showinfo: '0',
+      fs: '1',
+      autoplay: autoplay ? '1' : '0',
+      start: Math.floor(startTime).toString()
+    });
+    return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
   };
 
-  // 플레이어 제어 함수들
+  // 플레이어 제어
   const handlePlayPause = () => {
     if (!isHost) return;
-    
-    const newState = !playerState.isPlaying;
-    onStateChange({ isPlaying: newState });
-    
-    // iframe에 메시지 전송
-    if (iframeRef.current) {
-      const message = newState ? 'play' : 'pause';
-      iframeRef.current.contentWindow?.postMessage(
-        `{"event":"command","func":"${message}Video","args":""}`,
-        '*'
-      );
-    }
+    onStateChange({ isPlaying: !playerState.isPlaying });
   };
 
   const handleSeek = (newTime: number) => {
     if (!isHost) return;
-    
     setLocalTime(newTime);
     onStateChange({ currentTime: newTime });
     
-    // iframe 다시 로드하여 새 시간으로 시작
+    // iframe 새로고침으로 시간 이동
     if (iframeRef.current && videoId) {
-      const newUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&modestbranding=1&rel=0&showinfo=0&fs=1&cc_load_policy=0&iv_load_policy=3&autohide=0&autoplay=${playerState.isPlaying ? 1 : 0}&start=${Math.floor(newTime)}`;
+      const newUrl = getEmbedUrl(videoId, playerState.isPlaying, newTime);
       iframeRef.current.src = newUrl;
     }
   };
@@ -67,22 +65,31 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     handleSeek(newTime);
   };
 
-  // 시간 업데이트 (재생 중일 때)
+  // 시간 업데이트 타이머
   useEffect(() => {
-    if (playerState.isPlaying && !isDragging) {
-      const interval = setInterval(() => {
+    if (playerState.isPlaying) {
+      intervalRef.current = setInterval(() => {
         setLocalTime(prev => {
           const newTime = prev + 1;
-          if (isHost) {
+          if (isHost && newTime <= playerState.duration) {
             onStateChange({ currentTime: newTime });
           }
           return newTime;
         });
       }, 1000);
-      
-      return () => clearInterval(interval);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     }
-  }, [playerState.isPlaying, isDragging, isHost, onStateChange]);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [playerState.isPlaying, isHost, playerState.duration, onStateChange]);
 
   // 외부 상태 변경에 따른 동기화
   useEffect(() => {
@@ -93,25 +100,32 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   useEffect(() => {
     if (videoId && iframeRef.current) {
       setIsLoading(true);
-      const embedUrl = getEmbedUrl(videoId);
+      const embedUrl = getEmbedUrl(videoId, playerState.isPlaying, playerState.currentTime);
       iframeRef.current.src = embedUrl;
       
       // 로딩 완료 시뮬레이션
-      setTimeout(() => {
+      const loadTimeout = setTimeout(() => {
         setIsLoading(false);
-        // 기본 duration 설정 (실제로는 YouTube API에서 가져와야 함)
-        onStateChange({ duration: 300 }); // 5분으로 가정
-      }, 2000);
+        onStateChange({ duration: 300 }); // 5분 기본값
+      }, 3000);
+
+      return () => clearTimeout(loadTimeout);
     }
-  }, [videoId, onStateChange]);
+  }, [videoId]);
+
+  // 재생 상태 변경 시 iframe 업데이트
+  useEffect(() => {
+    if (videoId && iframeRef.current && !isLoading) {
+      const embedUrl = getEmbedUrl(videoId, playerState.isPlaying, localTime);
+      iframeRef.current.src = embedUrl;
+    }
+  }, [playerState.isPlaying]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
-
-  const currentDisplayTime = isDragging ? localTime : playerState.currentTime;
 
   if (!videoId) {
     return (
@@ -121,7 +135,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
             <Play className="w-8 h-8 text-white" />
           </div>
           <p className="text-lg font-medium">🎵 음악을 선택해주세요</p>
-          <p className="text-sm mt-2">YouTube URL을 입력하여 친구와 함께 들어보세요!</p>
+          <p className="text-sm mt-2">YouTube URL을 입력하거나 추천 음악을 선택하세요!</p>
         </div>
       </div>
     );
@@ -142,10 +156,9 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
         <iframe
           ref={iframeRef}
           className="w-full h-full"
-          src={getEmbedUrl(videoId)}
           title="YouTube video player"
           frameBorder="0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
         />
 
@@ -160,7 +173,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
               >
                 <div 
                   className="h-full bg-red-600 transition-all duration-300 relative"
-                  style={{ width: playerState.duration > 0 ? `${(currentDisplayTime / playerState.duration) * 100}%` : '0%' }}
+                  style={{ width: playerState.duration > 0 ? `${(localTime / playerState.duration) * 100}%` : '0%' }}
                 >
                   <div className="absolute right-0 top-1/2 transform -translate-y-1/2 w-4 h-4 bg-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
@@ -171,7 +184,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <button
-                  onClick={() => isHost && handleSeek(Math.max(0, currentDisplayTime - 10))}
+                  onClick={() => isHost && handleSeek(Math.max(0, localTime - 10))}
                   disabled={!isHost}
                   className={`p-2 rounded-full transition-colors ${
                     isHost 
@@ -199,7 +212,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
                 </button>
 
                 <button
-                  onClick={() => isHost && handleSeek(Math.min(playerState.duration, currentDisplayTime + 10))}
+                  onClick={() => isHost && handleSeek(Math.min(playerState.duration, localTime + 10))}
                   disabled={!isHost}
                   className={`p-2 rounded-full transition-colors ${
                     isHost 
@@ -224,7 +237,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
                 </div>
 
                 <span className="text-white text-sm font-mono">
-                  {formatTime(currentDisplayTime)} / {formatTime(playerState.duration)}
+                  {formatTime(localTime)} / {formatTime(playerState.duration)}
                 </span>
               </div>
 
